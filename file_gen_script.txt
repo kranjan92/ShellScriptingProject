@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# Variables for database connection
+DB_HOST="your_db_host"
+DB_USER="your_db_user"
+DB_PASS="your_db_password"
+DB_NAME="your_db_name"
+SQL_QUERY="SELECT accountNumber, accountStatus, accountBranch FROM account;"
+OUTPUT_QBOL="output.qbol"
+
+# Initialize the output file
+echo '<?xml version="1.0" encoding="UTF-8"?>' > "$OUTPUT_QBOL"
+echo '<qbol:Script xmlns="kjdfasjkj">' >> "$OUTPUT_QBOL"
+
+# Fetch records from the database
+RESULTS=$(mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" -D "$DB_NAME" -se "$SQL_QUERY")
+
+# Check if the query was successful
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to execute the SQL query. Please check your database connection or query syntax."
+  exit 1
+fi
+
+# Check if any data was retrieved
+if [ -z "$RESULTS" ]; then
+  echo "Error: No data retrieved from the database."
+  exit 1
+fi
+
+# Process each record and generate the <qbol:Add> block
+echo "$RESULTS" | while IFS=$'\t' read -r accountNumber accountStatus accountBranch; do
+  if [ -z "$accountNumber" ] || [ -z "$accountStatus" ] || [ -z "$accountBranch" ]; then
+    echo "Warning: Skipping incomplete record."
+    continue
+  fi
+
+  # Append the <qbol:Add> block to the output file
+  cat <<EOF >> "$OUTPUT_QBOL"
+  <qbol:Add>
+    <q5:Object Class="Account">
+      <q5:Property>
+        <q5:Name>accountnumber</q5:Name>
+        <q5:Value>${accountNumber}</q5:Value>
+      </q5:Property>
+      <q5:Property>
+        <q5:Name>accountStatus</q5:Name>
+        <q5:Value>${accountStatus}</q5:Value>
+      </q5:Property>
+      <q5:Property>
+        <q5:Name>accountBranch</q5:Name>
+        <q5:Value>${accountBranch}</q5:Value>
+      </q5:Property>
+    </q5:Object>
+  </qbol:Add>
+EOF
+done
+
+# Close the root element
+echo '</qbol:Script>' >> "$OUTPUT_QBOL"
+
+# Verify file creation
+if [ $? -eq 0 ]; then
+  echo "Successfully created $OUTPUT_QBOL with dynamic values."
+else
+  echo "Error: Failed to generate the qbol file."
+  exit 1
+fi
+
+# Validate the XML file (optional, requires xmllint)
+if command -v xmllint &> /dev/null; then
+  xmllint --noout "$OUTPUT_QBOL"
+  if [ $? -eq 0 ]; then
+    echo "The generated XML file is well-formed."
+  else
+    echo "Warning: The generated XML file has syntax issues."
+  fi
+else
+  echo "Note: xmllint not found. Skipping XML validation."
+fi
