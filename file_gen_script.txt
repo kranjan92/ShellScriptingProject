@@ -1,34 +1,40 @@
 #!/bin/bash
 
-# Variables for database connection
-DB_HOST="your_db_host"
+# Variables for Oracle Database connection
 DB_USER="your_db_user"
 DB_PASS="your_db_password"
-DB_NAME="your_db_name"
+DB_HOST="your_db_host"  # Format: hostname/service_name
 SQL_QUERY="SELECT accountNumber, accountStatus, accountBranch FROM account;"
 OUTPUT_QBOL="output.qbol"
+TEMP_FILE="query_results.tmp"
 
 # Initialize the output file
 echo '<?xml version="1.0" encoding="UTF-8"?>' > "$OUTPUT_QBOL"
 echo '<qbol:Script xmlns="kjdfasjkj">' >> "$OUTPUT_QBOL"
 
-# Fetch records from the database
-RESULTS=$(mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" -D "$DB_NAME" -se "$SQL_QUERY")
+# Execute the SQL query using sqlplus and save the results to a temporary file
+sqlplus -s "$DB_USER/$DB_PASS@$DB_HOST" <<EOF > "$TEMP_FILE"
+SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF ECHO OFF
+$SQL_QUERY;
+EXIT;
+EOF
 
-# Check if the query was successful
+# Check if the SQL query execution was successful
 if [ $? -ne 0 ]; then
   echo "Error: Failed to execute the SQL query. Please check your database connection or query syntax."
   exit 1
 fi
 
-# Check if any data was retrieved
-if [ -z "$RESULTS" ]; then
+# Check if the query returned any results
+if [ ! -s "$TEMP_FILE" ]; then
   echo "Error: No data retrieved from the database."
+  rm -f "$TEMP_FILE"
   exit 1
 fi
 
 # Process each record and generate the <qbol:Add> block
-echo "$RESULTS" | while IFS=$'\t' read -r accountNumber accountStatus accountBranch; do
+while IFS=' ' read -r accountNumber accountStatus accountBranch; do
+  # Skip incomplete records
   if [ -z "$accountNumber" ] || [ -z "$accountStatus" ] || [ -z "$accountBranch" ]; then
     echo "Warning: Skipping incomplete record."
     continue
@@ -53,10 +59,13 @@ echo "$RESULTS" | while IFS=$'\t' read -r accountNumber accountStatus accountBra
     </q5:Object>
   </qbol:Add>
 EOF
-done
+done < "$TEMP_FILE"
 
 # Close the root element
 echo '</qbol:Script>' >> "$OUTPUT_QBOL"
+
+# Cleanup temporary file
+rm -f "$TEMP_FILE"
 
 # Verify file creation
 if [ $? -eq 0 ]; then
